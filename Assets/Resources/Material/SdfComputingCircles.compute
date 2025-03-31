@@ -1,0 +1,76 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel Sdf2DCircle
+
+// Create a RenderTexture with enableRandomWrite flag and set it
+// with cs.SetTexture
+RWTexture2D<float4> Result;
+
+const float4 WordlBoud;
+const int iNum;
+const float iWidth;
+const float iHeigh;
+
+RWStructuredBuffer<float> CirlcesPosX;
+RWStructuredBuffer<float> CirlcesPosY;
+RWStructuredBuffer<float> CirlcesPosR;
+
+RWStructuredBuffer<float> SignDistanceField;
+
+float sdCircle(in float2 p, in float2 pos, float radius)
+{
+    return length(p-pos)-radius;
+}
+
+float3 palette(in float t, in float3 a, in float3 b, in float3 c, in float3 d)
+{
+    t = clamp(t, 0., 1.);
+    return a + b*cos(6.28318*(c*t+d));
+}
+
+float3 shade(float d)
+{
+    float3 col = float3(1.0,1.0,1.0) - sign(d)*float3(0.1,0.4,0.7);
+	col *= 1.0 - exp(-2.0*abs(d));
+	col *= 0.8 + 0.2*cos(10.0*d);
+	col = lerp( col, float3(1.0,1.0,1.0), 1.0-smoothstep(0.0,0.02,abs(d)) );
+
+    return col;
+}
+
+float sdf(float2 p)
+{
+     float d = 10000.0;
+    
+    for(int k=0;k<iNum;k++){
+        d = min(d, sdCircle(p, float2(CirlcesPosX[k],CirlcesPosY[k]), CirlcesPosR[k]));
+    }
+
+    return d;
+}
+
+float2 screenToWorld(float2 screen)
+{
+    float2 result;
+    result.x = WordlBoud.z*screen.x/iWidth+WordlBoud.x;
+    result.y = WordlBoud.w*(screen.y/iHeigh)+WordlBoud.y;
+
+    return result;
+}
+
+[numthreads(8,8,1)]
+void Sdf2DCircle (uint3 id : SV_DispatchThreadID)
+{
+    // project screen coordinate into world
+	float2 p = screenToWorld(float2(id.x,id.y));
+    
+    // signed distance for scene
+    float sd = sdf(p);
+    SignDistanceField[id.y * iWidth + id.x] = sd;
+
+    // compute signed distance to a colour
+    float3 col = shade(sd);
+
+    //Result[id.xy] = float4(id.x & id.y, (id.x & 15)/15.0, (id.y & 15)/15.0, 0.0);
+    Result[id.xy] = float4(col, 1.0);
+    //Result[id.xy] = float4(1.0,1.0,1.0, 1.0);
+}
